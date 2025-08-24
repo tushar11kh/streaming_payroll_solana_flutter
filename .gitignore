@@ -1,3 +1,78 @@
 
 # FVM Version Cache
 .fvm/
+
+
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Visual Studio Code related
+.classpath
+.project
+.settings/
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+# .vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+
+# Android related
+**/android/gradle-wrapper.jar
+**/android/**/*.keystore
+**/android/**/local.properties
+**/android/.gradle/
+**/android/build/
+**/android/captures/
+**/android/gradle/
+**/android/gradlew
+**/android/gradlew.bat
+
+# iOS related
+**/ios/.build/
+**/ios/Pods/
+**/ios/xcuserdata/
+
+# macOS related
+**/macos/Flutter/ephemeral/
+**/macos/Pods/
+
+# Windows related
+**/windows/ephemeral/
+
+# Linux related
+**/linux/ephemeral/
+
+# Web related
+.dart_tool/chrome-linux/
+.dart_tool/chrome-mac/
+.dart_tool/chrome-win/
+.packages/
+build/web/
+
+# App related
+# Exclude the generated Firebase configuration file (firebase_options.dart)
+# as it often contains sensitive, environment-specific information.
+# lib/firebase_options.dart
