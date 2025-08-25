@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ffi';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -86,7 +87,7 @@ class _EmployerScreenState extends State<EmployerScreen> {
 
       // 3. Build instruction data (discriminator + rate_per_second)
       final discriminator = [71, 188, 111, 127, 108, 40, 229, 158];
-      final rateBytes = _encodeUint64(rate);
+      final rateBytes = SolanaClientService().encodeUint64(rate);
       final instructionData = [...discriminator, ...rateBytes];
 
       // 4. Create instruction
@@ -280,15 +281,7 @@ class _EmployerScreenState extends State<EmployerScreen> {
     }
   }
 
-  // Helper function to encode u64 as little-endian bytes
-  List<int> _encodeUint64(int value) {
-    final result = List<int>.filled(8, 0);
-    for (var i = 0; i < 8; i++) {
-      result[i] = value & 0xFF;
-      value = value >> 8;
-    }
-    return result;
-  }
+
 
   Map<String, dynamic> _decodeStreamAccount(List<int> bytes) {
     // Layout:
@@ -342,6 +335,108 @@ class _EmployerScreenState extends State<EmployerScreen> {
       'bump': bump,
     };
   }
+
+  void _showDepositDialog(int index) {
+  final stream = _streams[index];
+  final amountController = TextEditingController();
+  final tokenAccountController = TextEditingController();
+
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Deposit to Stream'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('Employee: ${stream['employee']}'),
+          const SizedBox(height: 10),
+          Text('Current deposit: ${(stream['deposited_amount'] / 1000000000).toStringAsFixed(2)}'),
+          const SizedBox(height: 15),
+          TextField(
+            controller: tokenAccountController,
+            decoration: const InputDecoration(
+              labelText: 'Your Token Account Address',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: amountController,
+            decoration: const InputDecoration(
+              labelText: 'Amount to deposit',
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.numberWithOptions(decimal: true), // Allow decimals
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            final solanaService = Provider.of<SolanaClientService>(context, listen: false);
+            final rawAmount = double.tryParse(amountController.text) ?? 0;
+            final tokenAccount = tokenAccountController.text.trim();
+
+            if (rawAmount <= 0 || tokenAccount.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Please enter valid amount and token account')),
+              );
+              return;
+            }
+
+            try {
+              // Re-derive the PDAs using the same method as during creation
+              final employerKey = solanaService.wallet!.publicKey;
+              final employeeKey = Ed25519HDPublicKey.fromBase58(stream['employee']);
+
+              final streamPda = await Ed25519HDPublicKey.findProgramAddress(
+                seeds: [
+                  SolanaConstants.streamSeed.codeUnits,
+                  employerKey.bytes,
+                  employeeKey.bytes,
+                ],
+                programId: Ed25519HDPublicKey.fromBase58(SolanaConstants.programId),
+              );
+
+              final vaultPda = await Ed25519HDPublicKey.findProgramAddress(
+                seeds: [
+                  SolanaConstants.vaultSeed.codeUnits,
+                  employerKey.bytes,
+                  employeeKey.bytes,
+                ],
+                programId: Ed25519HDPublicKey.fromBase58(SolanaConstants.programId),
+              );
+
+              final amount = (rawAmount*1000000000).round();
+
+              final signature = await solanaService.depositToVault(
+                streamPubkey: streamPda,
+                vaultPubkey: vaultPda,
+                employerTokenAccount: Ed25519HDPublicKey.fromBase58(tokenAccount),
+                amount: amount,
+              );
+              
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Deposit successful! TX: ${signature.substring(0, 8)}...')),
+              );
+              _fetchStreams(); // Refresh to show updated amount
+            } catch (e) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Deposit failed: $e')),
+              );
+            }
+          },
+          child: const Text('Deposit'),
+        ),
+      ],
+    ),
+  );
+}
 
   @override
   Widget build(BuildContext context) {
@@ -462,17 +557,25 @@ class _EmployerScreenState extends State<EmployerScreen> {
                     itemCount: _streams.length,
                     itemBuilder: (context, index) {
                       final stream = _streams[index];
-                      return Card(
-                        child: ListTile(
-                          title: Text('Employee: ${stream['employee']}'),
-                          subtitle: Text(
-                            'Rate: ${stream['rate_per_second']} tokens/sec',
-                          ),
-                          trailing: Text(
-                            'Deposited: ${stream['deposited_amount']}',
-                          ),
-                        ),
-                      );
+                          return Card(
+      child: ListTile(
+        title: Text('Employee: ${stream['employee']}'),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Rate: ${stream['rate_per_second']} tokens/sec'),
+            Text('Deposited: ${(stream['deposited_amount'] / 1000000000).toStringAsFixed(2)}'),
+          ],
+        ),
+        trailing: ElevatedButton(
+          onPressed: () => _showDepositDialog(index),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green[700],
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Deposit'),
+        ),
+      ));
                     },
                   ),
           ],

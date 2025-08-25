@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'package:solana/encoder.dart';
 import 'package:solana/solana.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/solana_constants.dart';
 import 'package:flutter/foundation.dart';
+import 'package:solana/src/encoder/instruction.dart' as inst;
 
 
 class SolanaClientService extends ChangeNotifier {
@@ -54,6 +56,67 @@ class SolanaClientService extends ChangeNotifier {
     publicKey = null;
     notifyListeners();  // Add this to notify listeners of changes
   }
+
+
+
+
+  // In your SolanaClientService class, add:
+Future<String> depositToVault({
+  required Ed25519HDPublicKey streamPubkey,
+  required Ed25519HDPublicKey vaultPubkey,
+  required Ed25519HDPublicKey employerTokenAccount,
+  required int amount,
+}) async {
+  try {
+    // Build deposit_to_vault instruction
+    final discriminator = [18, 62, 110, 8, 26, 106, 248, 151]; // From IDL
+    final amountBytes = encodeUint64(amount);
+    final instructionData = [...discriminator, ...amountBytes];
+
+    final instruction = inst.Instruction(
+      programId: Ed25519HDPublicKey.fromBase58(SolanaConstants.programId),
+      accounts: [
+        // employer (signer, writable)
+        AccountMeta.writeable(pubKey: wallet!.publicKey, isSigner: true),
+        // stream (writable)
+        AccountMeta.writeable(pubKey: streamPubkey, isSigner: false),
+        // vault (writable)
+        AccountMeta.writeable(pubKey: vaultPubkey, isSigner: false),
+        // employer_token_account (writable)
+        AccountMeta.writeable(pubKey: employerTokenAccount, isSigner: false),
+        // token_program
+        AccountMeta.readonly(
+          pubKey: Ed25519HDPublicKey.fromBase58('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'),
+          isSigner: false,
+        ),
+      ],
+      data: ByteArray(instructionData),
+    );
+
+    final message = Message(instructions: [instruction]);
+    final signature = await client.sendAndConfirmTransaction(
+      message: message,
+      signers: [wallet!],
+      commitment: Commitment.confirmed,
+    );
+
+    return signature;
+  } catch (e) {
+    print('Error depositing to vault: $e');
+    rethrow;
+  }
+}
+
+// Helper function (add this to your service)
+List<int> encodeUint64(int value) {
+  final result = List<int>.filled(8, 0);
+  for (var i = 0; i < 8; i++) {
+    result[i] = value & 0xFF;
+    value = value >> 8;
+  }
+  return result;
+}
+
 }
 
 
