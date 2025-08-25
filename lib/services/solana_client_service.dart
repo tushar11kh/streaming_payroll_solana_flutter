@@ -117,6 +117,16 @@ List<int> encodeUint64(int value) {
   return result;
 }
 
+Future<double> getSolBalance() async {
+  try {
+    final balance = await client.rpcClient.getBalance(wallet!.publicKey.toBase58());
+    return balance.value / 1000000000; // Convert lamports to SOL
+  } catch (e) {
+    print('Error getting SOL balance: $e');
+    return 0;
+  }
+}
+
 }
 
 

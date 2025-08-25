@@ -9,6 +9,7 @@ import 'package:solana/solana.dart';
 import 'package:streaming_payroll_solana_flutter/constants/solana_constants.dart';
 import '../services/solana_client_service.dart';
 import 'package:solana/src/encoder/instruction.dart' as inst;
+import '../cards/balance_card.dart';
 
 class EmployerScreen extends StatefulWidget {
   const EmployerScreen({super.key});
@@ -105,14 +106,14 @@ class _EmployerScreenState extends State<EmployerScreen> {
           // token_mint (TODO: Replace with actual token mint)
           AccountMeta.readonly(
             pubKey: Ed25519HDPublicKey.fromBase58(
-              '9UEPmvkKMpHtM2Yn6HkktCEDUo3tMyBR3YEnBr2mgdLR',
+              SolanaConstants.tokenMintAddress,
             ),
             isSigner: false,
           ),
           // token_program
           AccountMeta.readonly(
             pubKey: Ed25519HDPublicKey.fromBase58(
-              'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+              SolanaConstants.tokenProgramId,
             ),
             isSigner: false,
           ),
@@ -224,7 +225,7 @@ class _EmployerScreenState extends State<EmployerScreen> {
           // Case 1: BinaryAccountData (the solana package DTO)
           if (accDataRaw is BinaryAccountData) {
             // BinaryAccountData.data is typically Uint8List or List<int>
-            dataBytes = accDataRaw.data?.cast<int>();
+            dataBytes = accDataRaw.data.cast<int>();
           }
           // Case 2: RPC returned [base64String, "base64"]
           else if (accDataRaw is List &&
@@ -271,7 +272,9 @@ class _EmployerScreenState extends State<EmployerScreen> {
           debugPrint('Error decoding stream account: $e\n$st');
         }
       }
-      streams.sort((a, b) => (b['start_time'] as int).compareTo(a['start_time'] as int));
+      streams.sort(
+        (a, b) => (b['start_time'] as int).compareTo(a['start_time'] as int),
+      );
       print("printing _streams before set state:$_streams");
       setState(() => _streams = streams);
     } catch (e) {
@@ -280,8 +283,6 @@ class _EmployerScreenState extends State<EmployerScreen> {
       setState(() => _loadingStreams = false);
     }
   }
-
-
 
   Map<String, dynamic> _decodeStreamAccount(List<int> bytes) {
     // Layout:
@@ -337,106 +338,129 @@ class _EmployerScreenState extends State<EmployerScreen> {
   }
 
   void _showDepositDialog(int index) {
-  final stream = _streams[index];
-  final amountController = TextEditingController();
-  final tokenAccountController = TextEditingController();
+    final stream = _streams[index];
+    final amountController = TextEditingController();
+    final tokenAccountController = TextEditingController();
 
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Deposit to Stream'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('Employee: ${stream['employee']}'),
-          const SizedBox(height: 10),
-          Text('Current deposit: ${(stream['deposited_amount'] / 1000000000).toStringAsFixed(2)}'),
-          const SizedBox(height: 15),
-          TextField(
-            controller: tokenAccountController,
-            decoration: const InputDecoration(
-              labelText: 'Your Token Account Address',
-              border: OutlineInputBorder(),
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Deposit to Stream'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Employee: ${stream['employee']}'),
+            const SizedBox(height: 10),
+            Text(
+              'Current deposit: ${(stream['deposited_amount'] / 1000000000).toStringAsFixed(2)}',
             ),
+            const SizedBox(height: 15),
+            TextField(
+              controller: tokenAccountController,
+              decoration: const InputDecoration(
+                labelText: 'Your Token Account Address',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: amountController,
+              decoration: const InputDecoration(
+                labelText: 'Amount to deposit',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.numberWithOptions(
+                decimal: true,
+              ), // Allow decimals
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
           ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: amountController,
-            decoration: const InputDecoration(
-              labelText: 'Amount to deposit',
-              border: OutlineInputBorder(),
-            ),
-            keyboardType: TextInputType.numberWithOptions(decimal: true), // Allow decimals
+          ElevatedButton(
+            onPressed: () async {
+              final solanaService = Provider.of<SolanaClientService>(
+                context,
+                listen: false,
+              );
+              final rawAmount = double.tryParse(amountController.text) ?? 0;
+              final tokenAccount = tokenAccountController.text.trim();
+
+              if (rawAmount <= 0 || tokenAccount.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Please enter valid amount and token account',
+                    ),
+                  ),
+                );
+                return;
+              }
+
+              try {
+                // Re-derive the PDAs using the same method as during creation
+                final employerKey = solanaService.wallet!.publicKey;
+                final employeeKey = Ed25519HDPublicKey.fromBase58(
+                  stream['employee'],
+                );
+
+                final streamPda = await Ed25519HDPublicKey.findProgramAddress(
+                  seeds: [
+                    SolanaConstants.streamSeed.codeUnits,
+                    employerKey.bytes,
+                    employeeKey.bytes,
+                  ],
+                  programId: Ed25519HDPublicKey.fromBase58(
+                    SolanaConstants.programId,
+                  ),
+                );
+
+                final vaultPda = await Ed25519HDPublicKey.findProgramAddress(
+                  seeds: [
+                    SolanaConstants.vaultSeed.codeUnits,
+                    employerKey.bytes,
+                    employeeKey.bytes,
+                  ],
+                  programId: Ed25519HDPublicKey.fromBase58(
+                    SolanaConstants.programId,
+                  ),
+                );
+
+                final amount = (rawAmount * 1000000000).round();
+
+                final signature = await solanaService.depositToVault(
+                  streamPubkey: streamPda,
+                  vaultPubkey: vaultPda,
+                  employerTokenAccount: Ed25519HDPublicKey.fromBase58(
+                    tokenAccount,
+                  ),
+                  amount: amount,
+                );
+
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Deposit successful! TX: ${signature.substring(0, 8)}...',
+                    ),
+                  ),
+                );
+                _fetchStreams(); // Refresh to show updated amount
+              } catch (e) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('Deposit failed: $e')));
+              }
+            },
+            child: const Text('Deposit'),
           ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: () async {
-            final solanaService = Provider.of<SolanaClientService>(context, listen: false);
-            final rawAmount = double.tryParse(amountController.text) ?? 0;
-            final tokenAccount = tokenAccountController.text.trim();
-
-            if (rawAmount <= 0 || tokenAccount.isEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Please enter valid amount and token account')),
-              );
-              return;
-            }
-
-            try {
-              // Re-derive the PDAs using the same method as during creation
-              final employerKey = solanaService.wallet!.publicKey;
-              final employeeKey = Ed25519HDPublicKey.fromBase58(stream['employee']);
-
-              final streamPda = await Ed25519HDPublicKey.findProgramAddress(
-                seeds: [
-                  SolanaConstants.streamSeed.codeUnits,
-                  employerKey.bytes,
-                  employeeKey.bytes,
-                ],
-                programId: Ed25519HDPublicKey.fromBase58(SolanaConstants.programId),
-              );
-
-              final vaultPda = await Ed25519HDPublicKey.findProgramAddress(
-                seeds: [
-                  SolanaConstants.vaultSeed.codeUnits,
-                  employerKey.bytes,
-                  employeeKey.bytes,
-                ],
-                programId: Ed25519HDPublicKey.fromBase58(SolanaConstants.programId),
-              );
-
-              final amount = (rawAmount*1000000000).round();
-
-              final signature = await solanaService.depositToVault(
-                streamPubkey: streamPda,
-                vaultPubkey: vaultPda,
-                employerTokenAccount: Ed25519HDPublicKey.fromBase58(tokenAccount),
-                amount: amount,
-              );
-              
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Deposit successful! TX: ${signature.substring(0, 8)}...')),
-              );
-              _fetchStreams(); // Refresh to show updated amount
-            } catch (e) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Deposit failed: $e')),
-              );
-            }
-          },
-          child: const Text('Deposit'),
-        ),
-      ],
-    ),
-  );
-}
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -453,35 +477,11 @@ class _EmployerScreenState extends State<EmployerScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Employer Info Card
-            Card(
-              elevation: 4,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Employer Account',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      solanaService.publicKey ?? 'Not connected',
-                      style: const TextStyle(
-                        fontFamily: 'Monospace',
-                        fontSize: 12,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
+            const SizedBox(height: 30),
+            BalanceCard(
+              title: 'Wallet Balance',
+              tokenMintAddress: SolanaConstants.tokenMintAddress,
             ),
-
             const SizedBox(height: 30),
 
             // Create Stream Form
@@ -557,25 +557,30 @@ class _EmployerScreenState extends State<EmployerScreen> {
                     itemCount: _streams.length,
                     itemBuilder: (context, index) {
                       final stream = _streams[index];
-                          return Card(
-      child: ListTile(
-        title: Text('Employee: ${stream['employee']}'),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Rate: ${stream['rate_per_second']} tokens/sec'),
-            Text('Deposited: ${(stream['deposited_amount'] / 1000000000).toStringAsFixed(2)}'),
-          ],
-        ),
-        trailing: ElevatedButton(
-          onPressed: () => _showDepositDialog(index),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green[700],
-            foregroundColor: Colors.white,
-          ),
-          child: const Text('Deposit'),
-        ),
-      ));
+                      return Card(
+                        child: ListTile(
+                          title: Text('Employee: ${stream['employee']}'),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Rate: ${stream['rate_per_second']} tokens/sec',
+                              ),
+                              Text(
+                                'Deposited: ${(stream['deposited_amount'] / 1000000000).toStringAsFixed(2)}',
+                              ),
+                            ],
+                          ),
+                          trailing: ElevatedButton(
+                            onPressed: () => _showDepositDialog(index),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green[700],
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text('Deposit'),
+                          ),
+                        ),
+                      );
                     },
                   ),
           ],
