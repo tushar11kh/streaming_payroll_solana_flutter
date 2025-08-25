@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import './pda_service.dart';
 import '../models/stream.dart';
 import '../utils/data_parsing.dart';
+import './transaction_service.dart';
 
 class SolanaClientService extends ChangeNotifier {
   // Add extends ChangeNotifier
@@ -138,4 +139,57 @@ class SolanaClientService extends ChangeNotifier {
     return null;
   }
 }
+
+// Add these methods to the SolanaClientService class
+Future<String> createStreamTransaction(
+  Ed25519HDPublicKey employee,
+  int ratePerSecond,
+  Ed25519HDPublicKey tokenMint,
+) async {
+  if (wallet == null) throw Exception('Wallet not connected');
+  
+  try {
+    // Build the create stream instruction
+    final instruction = await TransactionService.createStream(
+      employer: wallet!.publicKey,
+      employee: employee,
+      ratePerSecond: ratePerSecond,
+      tokenMint: tokenMint,
+    );
+    
+    // Build transaction
+    final message = await TransactionService.buildTransaction([instruction]);
+    
+    // Estimate fee
+    final fee = await TransactionService.estimateFee(client, message);
+    print('Estimated fee: $fee lamports');
+    
+    // For now, just return the message details - we'll send in Day 5
+    return 'Transaction built successfully. Fee: ${fee / 1000000000} SOL';
+  } catch (e) {
+    print('Error building transaction: $e');
+    throw Exception('Failed to build transaction: $e');
+  }
+}
+
+// Test method to simulate transaction building
+Future<String> testTransactionBuilding() async {
+  if (wallet == null) throw Exception('Wallet not connected');
+  
+  // Use test values
+  const testEmployee = '11111111111111111111111111111111';
+  const testTokenMint = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'; // USDC devnet
+  const testRate = 1000; // 1000 tokens per second (for testing)
+  
+  try {
+    final employeeKey = Ed25519HDPublicKey.fromBase58(testEmployee);
+    final tokenMintKey = Ed25519HDPublicKey.fromBase58(testTokenMint);
+    
+    return await createStreamTransaction(employeeKey, testRate, tokenMintKey);
+  } catch (e) {
+    return 'Error: $e';
+  }
+}
+
+
 }
