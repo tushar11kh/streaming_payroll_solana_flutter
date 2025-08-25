@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:solana/solana.dart';
+import 'package:streaming_payroll_solana_flutter/services/pda_service.dart';
 import '../widgets/wallet_connection_widget.dart';
 import '../services/solana_client_service.dart';
 
@@ -21,6 +23,38 @@ class _EmployerScreenState extends State<EmployerScreen> {
     final solanaService = Provider.of<SolanaClientService>(context, listen: false);
     await solanaService.connectFromStored();
   }
+
+  // Add this method to the _EmployerScreenState class
+Future<void> _testPdaCalculation() async {
+  final solanaService = Provider.of<SolanaClientService>(context, listen: false);
+  
+  // Use a test employee address
+  const testEmployee = '11111111111111111111111111111111'; // Example base58 address
+  final employeeKey = Ed25519HDPublicKey.fromBase58(testEmployee);
+  
+  try {
+    final streamPda = await PdaService.findStreamPda(solanaService.wallet!.publicKey, employeeKey);
+    final vaultPda = await PdaService.findVaultPda(solanaService.wallet!.publicKey, employeeKey);
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Stream PDA: ${streamPda.toBase58().substring(0, 16)}...'),
+            Text('Vault PDA: ${vaultPda.toBase58().substring(0, 16)}...'),
+          ],
+        ),
+        duration: const Duration(seconds: 5),
+      ),
+    );
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error calculating PDA: $e')),
+    );
+  }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +85,7 @@ class _EmployerScreenState extends State<EmployerScreen> {
   }
 
   Widget _buildEmployerActions() {
-    return const Padding(
+    return Padding(
       padding: EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -77,6 +111,16 @@ class _EmployerScreenState extends State<EmployerScreen> {
               subtitle: Text('Fund an existing stream vault'),
             ),
           ),
+          // Add this to the Column children in _buildEmployerActions()
+const SizedBox(height: 16),
+Card(
+  child: ListTile(
+    leading: Icon(Icons.calculate),
+    title: Text('Test PDA Calculation'),
+    subtitle: Text('Verify stream and vault PDA addresses'),
+    onTap: _testPdaCalculation,
+  ),
+),
         ],
       ),
     );

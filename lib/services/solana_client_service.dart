@@ -3,8 +3,12 @@ import 'package:solana/solana.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/solana_constants.dart';
 import 'package:flutter/foundation.dart';
+import './pda_service.dart';
+import '../models/stream.dart';
+import '../utils/data_parsing.dart';
 
-class SolanaClientService extends ChangeNotifier {  // Add extends ChangeNotifier
+class SolanaClientService extends ChangeNotifier {
+  // Add extends ChangeNotifier
   late SolanaClient client;
   Ed25519HDKeyPair? wallet;
   String? publicKey;
@@ -24,19 +28,16 @@ class SolanaClientService extends ChangeNotifier {  // Add extends ChangeNotifie
         privateKey: privateKeyBytes,
       );
       publicKey = wallet?.publicKey.toBase58();
-      
+
       // Store wallet info
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
         SolanaConstants.storedPrivateKeyKey,
         base64Encode(privateKeyBytes),
       );
-      await prefs.setString(
-        SolanaConstants.storedPublicKeyKey,
-        publicKey!,
-      );
-      
-      notifyListeners();  // Add this to notify listeners of changes
+      await prefs.setString(SolanaConstants.storedPublicKeyKey, publicKey!);
+
+      notifyListeners(); // Add this to notify listeners of changes
       return true;
     } catch (e) {
       print('Error connecting wallet: $e');
@@ -48,16 +49,20 @@ class SolanaClientService extends ChangeNotifier {  // Add extends ChangeNotifie
   Future<bool> connectFromStored() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final storedPrivateKey = prefs.getString(SolanaConstants.storedPrivateKeyKey);
-      final storedPublicKey = prefs.getString(SolanaConstants.storedPublicKeyKey);
-      
+      final storedPrivateKey = prefs.getString(
+        SolanaConstants.storedPrivateKeyKey,
+      );
+      final storedPublicKey = prefs.getString(
+        SolanaConstants.storedPublicKeyKey,
+      );
+
       if (storedPrivateKey != null && storedPublicKey != null) {
         final privateKeyBytes = base64Decode(storedPrivateKey);
         wallet = await Ed25519HDKeyPair.fromPrivateKeyBytes(
           privateKey: privateKeyBytes,
         );
         publicKey = storedPublicKey;
-        notifyListeners();  // Add this to notify listeners of changes
+        notifyListeners(); // Add this to notify listeners of changes
         return true;
       }
       return false;
@@ -74,15 +79,17 @@ class SolanaClientService extends ChangeNotifier {  // Add extends ChangeNotifie
     await prefs.remove(SolanaConstants.storedPublicKeyKey);
     wallet = null;
     publicKey = null;
-    notifyListeners();  // Add this to notify listeners of changes
+    notifyListeners(); // Add this to notify listeners of changes
   }
 
-    // Get SOL balance
+  // Get SOL balance
   Future<double> getSolBalance() async {
     if (wallet == null) throw Exception('Wallet not connected');
-    
+
     try {
-      final balance = await client.rpcClient.getBalance(wallet!.publicKey.toBase58());
+      final balance = await client.rpcClient.getBalance(
+        wallet!.publicKey.toBase58(),
+      );
       return balance.value / 1000000000; // Convert lamports to SOL
     } catch (e) {
       print('Error getting balance: $e');
@@ -92,16 +99,43 @@ class SolanaClientService extends ChangeNotifier {  // Add extends ChangeNotifie
 
   // Get token balance
   // Get token balance (simplified for Day 2)
-Future<double> getTokenBalance(String tokenMint) async {
+  Future<double> getTokenBalance(String tokenMint) async {
+    if (wallet == null) throw Exception('Wallet not connected');
+
+    try {
+      // Simplified version - we'll implement proper token balance in Day 9
+      // For now, just return 0 and focus on wallet connection
+      return 0.0;
+    } catch (e) {
+      print('Error getting token balance: $e');
+      return 0.0;
+    }
+  }
+
+  // Add these methods to the SolanaClientService class
+  Future<Ed25519HDPublicKey> getStreamPda(Ed25519HDPublicKey employee) async {
+    if (wallet == null) throw Exception('Wallet not connected');
+    return PdaService.findStreamPda(wallet!.publicKey, employee);
+  }
+
+  Future<Ed25519HDPublicKey> getVaultPda(Ed25519HDPublicKey employee) async {
+    if (wallet == null) throw Exception('Wallet not connected');
+    return PdaService.findVaultPda(wallet!.publicKey, employee);
+  }
+
+  Future<StreamAccount?> getStreamAccount(Ed25519HDPublicKey employee) async {
   if (wallet == null) throw Exception('Wallet not connected');
   
   try {
-    // Simplified version - we'll implement proper token balance in Day 9
-    // For now, just return 0 and focus on wallet connection
-    return 0.0;
+    final streamPda = await getStreamPda(employee);
+    final accountInfo = await client.rpcClient.getAccountInfo(streamPda.toBase58());
+    
+    // For now, just return null - we'll implement proper parsing in Day 9
+    print('Account info: $accountInfo');
+    return null;
   } catch (e) {
-    print('Error getting token balance: $e');
-    return 0.0;
+    print('Error getting stream account: $e');
+    return null;
   }
 }
 }
