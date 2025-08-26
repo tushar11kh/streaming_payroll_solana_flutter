@@ -110,12 +110,9 @@ Future<String> depositToVault({
 
 // Helper function (add this to your service)
 List<int> encodeUint64(int value) {
-  final result = List<int>.filled(8, 0);
-  for (var i = 0; i < 8; i++) {
-    result[i] = value & 0xFF;
-    value = value >> 8;
-  }
-  return result;
+  final byteData = ByteData(8);
+  byteData.setUint64(0, value, Endian.little);
+  return byteData.buffer.asUint8List().toList();
 }
 
 Future<double> getSolBalance() async {
@@ -153,7 +150,7 @@ Future<String?> findEmployerTokenAccount(String mintAddress) async {
     }
 
     // Return the first token account address
-    return tokenAccounts.first.pubkey as String;
+    return tokenAccounts.first.pubkey;
   } catch (e) {
     print('Error finding token account: $e');
     return null;
@@ -259,6 +256,65 @@ Map<String, dynamic> _decodeStreamAccount(List<int> bytes) {
     'claimed_amount': claimedAmount,
     'bump': bump,
   };
+}
+
+// Add to SolanaClientService
+Future<String> claimTokens({
+  required Ed25519HDPublicKey streamPubkey,
+  required Ed25519HDPublicKey vaultPubkey,
+  required Ed25519HDPublicKey employeeTokenAccount,
+  required int bump, // Stream PDA bump
+}) async {
+  try {
+    // Build claim instruction
+    final discriminator = [62, 198, 214, 193, 213, 159, 108, 210]; // From IDL
+    final instructionData = [...discriminator];
+
+    final instruction = inst.Instruction(
+      programId: Ed25519HDPublicKey.fromBase58(SolanaConstants.programId),
+      accounts: [
+        // employee (signer, writable)
+        AccountMeta.writeable(pubKey: wallet!.publicKey, isSigner: true),
+        // stream (writable)
+        AccountMeta.writeable(pubKey: streamPubkey, isSigner: false),
+        // vault (writable)
+        AccountMeta.writeable(pubKey: vaultPubkey, isSigner: false),
+        // employee_token_account (writable)
+        AccountMeta.writeable(pubKey: employeeTokenAccount, isSigner: false),
+        // token_program
+        AccountMeta.readonly(
+          pubKey: Ed25519HDPublicKey.fromBase58(SolanaConstants.tokenProgramId),
+          isSigner: false,
+        ),
+      ],
+      data: ByteArray(instructionData),
+    );
+
+    final message = Message(instructions: [instruction]);
+    final signature = await client.sendAndConfirmTransaction(
+      message: message,
+      signers: [wallet!],
+      commitment: Commitment.confirmed,
+    );
+
+    return signature;
+  } catch (e) {
+    print('Error claiming tokens: $e');
+    rethrow;
+  }
+}
+
+// Helper method to calculate claimable amount
+int calculateClaimable(Map<String, dynamic> stream) {
+  final currentTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  final elapsedTime = (currentTime - stream['start_time']).clamp(0, double.infinity).toInt();
+  final totalEarned = elapsedTime * stream['rate_per_second'];
+  final claimableAmount = totalEarned - stream['claimed_amount'];
+  
+  // Cannot claim more than what's available in the vault
+  final maxClaimable = stream['deposited_amount'] - stream['claimed_amount'];
+  
+  return claimableAmount.clamp(0, maxClaimable).toInt();
 }
 
 }

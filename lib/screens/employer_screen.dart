@@ -10,7 +10,7 @@ import 'package:streaming_payroll_solana_flutter/utils/token_utils.dart';
 import '../services/solana_client_service.dart';
 import 'package:solana/src/encoder/instruction.dart' as inst;
 import '../cards/balance_card.dart';
-import 'dart:typed_data';
+// import 'dart:typed_data';
 
 class EmployerScreen extends StatefulWidget {
   const EmployerScreen({super.key});
@@ -74,13 +74,14 @@ class _EmployerScreenState extends State<EmployerScreen> {
       // 1. Parse keys
       final employerKey = solanaService.wallet!.publicKey;
       final employeeKey = Ed25519HDPublicKey.fromBase58(employeePubkey);
-
+      final tokenMintKey = Ed25519HDPublicKey.fromBase58(_selectedToken!.mint);
       // 2. Derive PDAs
       final streamPda = await Ed25519HDPublicKey.findProgramAddress(
         seeds: [
           SolanaConstants.streamSeed.codeUnits,
           employerKey.bytes,
           employeeKey.bytes,
+          tokenMintKey.bytes,
         ],
         programId: Ed25519HDPublicKey.fromBase58(SolanaConstants.programId),
       );
@@ -90,17 +91,28 @@ class _EmployerScreenState extends State<EmployerScreen> {
           SolanaConstants.vaultSeed.codeUnits,
           employerKey.bytes,
           employeeKey.bytes,
+          tokenMintKey.bytes,
         ],
         programId: Ed25519HDPublicKey.fromBase58(SolanaConstants.programId),
       );
 
       // 3. Build instruction data (discriminator + rate_per_second)
       final discriminator = [71, 188, 111, 127, 108, 40, 229, 158];
-      final rateBytes = SolanaClientService().encodeUint64(rate);
+
+      final rawRatePerSecond = TokenUtils.toRawAmount(
+  double.tryParse(_rateController.text) ?? 0,
+  _selectedToken!.decimals, // Use the selected token's decimals
+);
+
+print('DEBUG: UI rate: ${_rateController.text}');
+print('DEBUG: Raw rate: $rawRatePerSecond');
+print('DEBUG: Encoded bytes: ${SolanaClientService().encodeUint64(rawRatePerSecond)}');
+
+
+      final rateBytes = SolanaClientService().encodeUint64(rawRatePerSecond);
       final instructionData = [
         ...discriminator,
         ...rateBytes,
-        _selectedToken!.decimals,
       ];
 
       // 4. Create instruction
@@ -361,8 +373,8 @@ class _EmployerScreenState extends State<EmployerScreen> {
     final stream = _streams[index];
     final token = TokenUtils.findTokenByMint(stream['token_mint']);
     final amountController = TextEditingController();
-    String? tokenAccountAddress;
-    bool loadingTokenAccount = true;
+    // String? tokenAccountAddress;
+    // bool loadingTokenAccount = true;
 
     showDialog(
       context: context,
@@ -445,6 +457,7 @@ class _EmployerScreenState extends State<EmployerScreen> {
                       final employeeKey = Ed25519HDPublicKey.fromBase58(
                         stream['employee'],
                       );
+                      final tokenMintKey = Ed25519HDPublicKey.fromBase58(stream['token_mint']); // ADD THIS
 
                       final streamPda =
                           await Ed25519HDPublicKey.findProgramAddress(
@@ -452,6 +465,7 @@ class _EmployerScreenState extends State<EmployerScreen> {
                               SolanaConstants.streamSeed.codeUnits,
                               employerKey.bytes,
                               employeeKey.bytes,
+                              tokenMintKey.bytes,
                             ],
                             programId: Ed25519HDPublicKey.fromBase58(
                               SolanaConstants.programId,
@@ -464,6 +478,7 @@ class _EmployerScreenState extends State<EmployerScreen> {
                               SolanaConstants.vaultSeed.codeUnits,
                               employerKey.bytes,
                               employeeKey.bytes,
+                              tokenMintKey.bytes,
                             ],
                             programId: Ed25519HDPublicKey.fromBase58(
                               SolanaConstants.programId,
@@ -491,7 +506,7 @@ class _EmployerScreenState extends State<EmployerScreen> {
                         streamPubkey: streamPda,
                         vaultPubkey: vaultPda,
                         employerTokenAccount: Ed25519HDPublicKey.fromBase58(
-                          tokenAccountAddress!,
+                          tokenAccountAddress,
                         ),
                         amount: amount,
                       );
@@ -650,6 +665,10 @@ class _EmployerScreenState extends State<EmployerScreen> {
                         stream['deposited_amount'],
                         stream['token_decimals'],
                       );
+                      final uiClaimed = TokenUtils.toUiAmount( // ADD THIS
+      stream['claimed_amount'],
+      stream['token_decimals'],
+    );
 
                       return Card(
                         child: ListTile(
@@ -658,11 +677,12 @@ class _EmployerScreenState extends State<EmployerScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text('Token: ${token?.symbol ?? 'Unknown'}'),
-                              Text(
-                                'Rate: ${stream['rate_per_second']} tokens/sec',
-                              ),
+                              Text('Rate: ${TokenUtils.toUiAmount(stream['rate_per_second'], stream['token_decimals']).toStringAsFixed(stream['token_decimals'])} ${token?.symbol}/sec'),
                               Text(
                                 'Deposited: ${TokenUtils.formatAmount(uiDeposited, 4)} ${token?.symbol}',
+                              ),
+                              Text(
+                                'Claimed: ${TokenUtils.formatAmount(uiClaimed, 4)} ${token?.symbol}',
                               ),
                             ],
                           ),
