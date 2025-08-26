@@ -160,6 +160,107 @@ Future<String?> findEmployerTokenAccount(String mintAddress) async {
   }
 }
 
+// Add to SolanaClientService
+Future<List<Map<String, dynamic>>> fetchEmployeeStreams() async {
+  if (!isConnected) return [];
+
+  try {
+    final programId = Ed25519HDPublicKey.fromBase58(SolanaConstants.programId);
+    final employeePubkey = wallet!.publicKey;
+
+    // Get all Stream accounts where employee matches connected wallet
+    final accounts = await client.rpcClient.getProgramAccounts(
+      programId.toBase58(),
+      commitment: Commitment.confirmed,
+      encoding: Encoding.base64,
+      filters: [
+        // Filter for Stream accounts by checking account discriminator
+        ProgramDataFilter.memcmp(
+          offset: 0,
+          bytes: [166, 224, 59, 4, 202, 10, 186, 83], // Stream account discriminator
+        ),
+        // Filter for streams where employee matches connected wallet
+        ProgramDataFilter.memcmp(
+          offset: 40, // Skip 8-byte discriminator + 32-byte employer, employee is at offset 40
+          bytes: employeePubkey.bytes,
+        ),
+      ],
+    );
+
+    final List<Map<String, dynamic>> streams = [];
+
+    for (final account in accounts) {
+      try {
+        final dynamic accDataRaw = account.account.data;
+        List<int> dataBytes;
+
+        if (accDataRaw is BinaryAccountData) {
+          dataBytes = accDataRaw.data.cast<int>();
+        } else if (accDataRaw is List && accDataRaw.isNotEmpty && accDataRaw[0] is String) {
+          dataBytes = base64Decode(accDataRaw[0] as String);
+        } else if (accDataRaw is String) {
+          dataBytes = base64Decode(accDataRaw);
+        } else if (accDataRaw is Map) {
+          final dynamic inner = accDataRaw['data'];
+          if (inner is List && inner.isNotEmpty && inner[0] is String) {
+            dataBytes = base64Decode(inner[0] as String);
+          } else if (inner is String) {
+            dataBytes = base64Decode(inner);
+          } else {
+            continue;
+          }
+        } else {
+          continue;
+        }
+
+        if (dataBytes.length < 137) continue;
+
+        final streamData = _decodeStreamAccount(dataBytes);
+        streams.add(streamData);
+      } catch (e) {
+        print('Error decoding stream account: $e');
+      }
+    }
+
+    // Sort by start time (newest first)
+    streams.sort((a, b) => (b['start_time'] as int).compareTo(a['start_time'] as int));
+    
+    return streams;
+  } catch (e) {
+    print('Error fetching employee streams: $e');
+    return [];
+  }
+}
+
+// Helper method to decode stream account data (same as employer side)
+Map<String, dynamic> _decodeStreamAccount(List<int> bytes) {
+  // Your existing decode method from employer screen
+  // Make sure this is consistent with both employer and employee
+  final employer = Ed25519HDPublicKey(bytes.sublist(8, 40));
+  final employee = Ed25519HDPublicKey(bytes.sublist(40, 72));
+  final tokenMint = Ed25519HDPublicKey(bytes.sublist(72, 104));
+  final tokenDecimals = bytes[104];
+
+  final byteData = ByteData.sublistView(Uint8List.fromList(bytes));
+  final startTime = byteData.getInt64(105, Endian.little);
+  final ratePerSecond = byteData.getUint64(113, Endian.little);
+  final depositedAmount = byteData.getUint64(121, Endian.little);
+  final claimedAmount = byteData.getUint64(129, Endian.little);
+  final bump = bytes[137];
+
+  return {
+    'employer': employer.toBase58(),
+    'employee': employee.toBase58(),
+    'token_mint': tokenMint.toBase58(),
+    'token_decimals': tokenDecimals,
+    'start_time': startTime,
+    'rate_per_second': ratePerSecond,
+    'deposited_amount': depositedAmount,
+    'claimed_amount': claimedAmount,
+    'bump': bump,
+  };
+}
+
 }
 
 
