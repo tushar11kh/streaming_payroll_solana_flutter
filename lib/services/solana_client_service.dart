@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:solana/dto.dart';
 import 'package:solana/encoder.dart';
 import 'package:solana/solana.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -124,6 +125,38 @@ Future<double> getSolBalance() async {
   } catch (e) {
     print('Error getting SOL balance: $e');
     return 0;
+  }
+}
+
+// Replace ALL token account finding methods with this ONE method
+Future<String?> findEmployerTokenAccount(String mintAddress) async {
+  try {
+    // Use the SAME approach as BalanceCard (it works!)
+    final mintBytes = Ed25519HDPublicKey.fromBase58(mintAddress).bytes;
+    final ownerBytes = wallet!.publicKey.bytes;
+
+    final tokenAccounts = await client.rpcClient.getProgramAccounts(
+      SolanaConstants.tokenProgramId,
+      commitment: Commitment.confirmed,
+      encoding: Encoding.base64,
+      filters: [
+        ProgramDataFilter.memcmp(offset: 0, bytes: mintBytes),
+        ProgramDataFilter.memcmp(offset: 32, bytes: ownerBytes),
+      ],
+    );
+
+    print('Found ${tokenAccounts.length} token accounts for mint: $mintAddress');
+
+    if (tokenAccounts.isEmpty) {
+      print('No token account found for mint: $mintAddress');
+      return null;
+    }
+
+    // Return the first token account address
+    return tokenAccounts.first.pubkey as String;
+  } catch (e) {
+    print('Error finding token account: $e');
+    return null;
   }
 }
 

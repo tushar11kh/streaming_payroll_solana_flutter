@@ -5,18 +5,20 @@ import 'package:provider/provider.dart';
 import 'package:solana/dto.dart';
 import 'package:solana/solana.dart';
 import 'package:streaming_payroll_solana_flutter/constants/solana_constants.dart';
+import 'package:streaming_payroll_solana_flutter/models/token_info.dart';
+import 'package:streaming_payroll_solana_flutter/utils/token_utils.dart';
 import '../services/solana_client_service.dart';
 
 class BalanceCard extends StatefulWidget {
   final String title;
   final bool showTokenBalance;
-  final String? tokenMintAddress;
+  final List<TokenInfo> tokensToShow;
 
   const BalanceCard({
     super.key,
     this.title = 'Wallet Balance',
     this.showTokenBalance = true,
-    this.tokenMintAddress,
+    this.tokensToShow = const [], // Empty means show all
   });
 
   @override
@@ -25,7 +27,7 @@ class BalanceCard extends StatefulWidget {
 
 class _BalanceCardState extends State<BalanceCard> {
   double solBalance = 0;
-  String tokenBalance = '';
+  Map<String, String> tokenBalances = {};
   bool loading = true;
 
   @override
@@ -57,14 +59,22 @@ class _BalanceCardState extends State<BalanceCard> {
       solBalance = balance.value / 1000000000;
 
       // Get token balance
-      tokenBalance = await _getTokenBalance(
-        solanaService,
-        widget.tokenMintAddress!,
-      );
+      final tokens = widget.tokensToShow.isEmpty 
+          ? SolanaConstants.supportedTokens 
+          : widget.tokensToShow;
+
+      for (final token in tokens) {
+        final balance = await _getTokenBalance(solanaService, token.mint);
+        final uiBalance = TokenUtils.toUiAmount(
+          int.tryParse(balance) ?? 0, 
+          token.decimals
+        );
+        tokenBalances[token.symbol] = TokenUtils.formatAmount(uiBalance, 4);
+      }
     } catch (e) {
       print('Error loading balances: $e');
     } finally {
-      setState(() => loading = false); // Hide loading
+      setState(() => loading = false);
     }
   }
 
@@ -197,20 +207,21 @@ class _BalanceCardState extends State<BalanceCard> {
                       const SizedBox(height: 8),
 
                       // Token Balance (if enabled)
-                      if (widget.showTokenBalance &&
-                          widget.tokenMintAddress != null)
-                        Row(
-                          children: [
-                            const Icon(Icons.monetization_on, size: 16),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Tokens: ${double.parse(tokenBalance) / 1000000000}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
+                      ...tokenBalances.entries.map((entry) => Column(
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.monetization_on, size: 16),
+                              const SizedBox(width: 8),
+                              Text(
+                                '${entry.key}: ${entry.value}',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
                               ),
-                            ),
-                          ],
-                        ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                      )).toList(),
                       Row(
                         children: [
                           // Add a rotation animation for the refresh icon
