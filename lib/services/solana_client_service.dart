@@ -6,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/solana_constants.dart';
 import 'package:flutter/foundation.dart';
 import 'package:solana/src/encoder/instruction.dart' as inst;
+import 'package:fixnum/fixnum.dart';
+import '../screens/employer_screen.dart';
 
 
 class SolanaClientService extends ChangeNotifier {
@@ -110,9 +112,8 @@ Future<String> depositToVault({
 
 // Helper function (add this to your service)
 List<int> encodeUint64(int value) {
-  final byteData = ByteData(8);
-  byteData.setUint64(0, value, Endian.little);
-  return byteData.buffer.asUint8List().toList();
+  final int64 = Int64(value);
+  return int64.toBytes();
 }
 
 Future<double> getSolBalance() async {
@@ -212,7 +213,7 @@ Future<List<Map<String, dynamic>>> fetchEmployeeStreams() async {
 
         if (dataBytes.length < 137) continue;
 
-        final streamData = _decodeStreamAccount(dataBytes);
+        final streamData = decodeStreamAccount(dataBytes);
         streams.add(streamData);
       } catch (e) {
         print('Error decoding stream account: $e');
@@ -230,32 +231,67 @@ Future<List<Map<String, dynamic>>> fetchEmployeeStreams() async {
 }
 
 // Helper method to decode stream account data (same as employer side)
-Map<String, dynamic> _decodeStreamAccount(List<int> bytes) {
-  // Your existing decode method from employer screen
-  // Make sure this is consistent with both employer and employee
-  final employer = Ed25519HDPublicKey(bytes.sublist(8, 40));
-  final employee = Ed25519HDPublicKey(bytes.sublist(40, 72));
-  final tokenMint = Ed25519HDPublicKey(bytes.sublist(72, 104));
-  final tokenDecimals = bytes[104];
+Map<String, dynamic> decodeStreamAccount(List<int> bytes) {
+  // Layout:
+    // 0-7: discriminator (8 bytes)
+    // 8-39: employer (32 bytes)
+    // 40-71: employee (32 bytes)
+    // 72-103: token_mint (32 bytes) - NEW FIELD
+    // 104: token_decimals (1 byte) - NEW FIELD
+    // 105-112: start_time (i64 LE, 8 bytes)
+    // 113-120: rate_per_second (u64 LE, 8 bytes)
+    // 121-128: deposited_amount (u64 LE, 8 bytes)
+    // 129-136: claimed_amount (u64 LE, 8 bytes)
+    // 137: bump (1 byte)
 
-  final byteData = ByteData.sublistView(Uint8List.fromList(bytes));
-  final startTime = byteData.getInt64(105, Endian.little);
-  final ratePerSecond = byteData.getUint64(113, Endian.little);
-  final depositedAmount = byteData.getUint64(121, Endian.little);
-  final claimedAmount = byteData.getUint64(129, Endian.little);
-  final bump = bytes[137];
+    final employer = Ed25519HDPublicKey(bytes.sublist(8, 40));
+    final employee = Ed25519HDPublicKey(bytes.sublist(40, 72));
 
-  return {
-    'employer': employer.toBase58(),
-    'employee': employee.toBase58(),
-    'token_mint': tokenMint.toBase58(),
-    'token_decimals': tokenDecimals,
-    'start_time': startTime,
-    'rate_per_second': ratePerSecond,
-    'deposited_amount': depositedAmount,
-    'claimed_amount': claimedAmount,
-    'bump': bump,
-  };
+    final tokenMint = Ed25519HDPublicKey(bytes.sublist(72, 104)); // New field
+    final tokenDecimals = bytes[104]; // New field
+
+    int decodeU64LE(List<int> b) {
+      var value = 0;
+      for (var i = 0; i < b.length; i++) {
+        value |= (b[i] & 0xff) << (8 * i);
+      }
+      return value;
+    }
+
+    int decodeI64LE(List<int> b) {
+      // Use BigInt to avoid sign issues
+      final u = BigInt.zero | BigInt.from(0);
+      BigInt big = BigInt.zero;
+      for (var i = 0; i < b.length; i++) {
+        big |= (BigInt.from(b[i]) << (8 * i));
+      }
+      final signBit = BigInt.one << 63;
+      if ((big & signBit) != BigInt.zero) {
+        big = big - (BigInt.one << 64);
+      }
+      return big.toInt();
+    }
+
+    // Proper u64/i64 decoding using ByteData
+    // final byteData = ByteData.sublistView(Uint8List.fromList(bytes));
+
+    final startTime = decodeI64LE(bytes.sublist(105, 113));
+    final ratePerSecond = decodeU64LE(bytes.sublist(113, 121));
+    final depositedAmount = decodeU64LE(bytes.sublist(121, 129));
+    final claimedAmount = decodeU64LE(bytes.sublist(129, 137));
+    final bump = bytes[137];
+
+    return {
+      'employer': employer.toBase58(),
+      'employee': employee.toBase58(),
+      'token_mint': tokenMint.toBase58(),
+      'token_decimals': tokenDecimals,
+      'start_time': startTime,
+      'rate_per_second': ratePerSecond,
+      'deposited_amount': depositedAmount,
+      'claimed_amount': claimedAmount,
+      'bump': bump,
+    };
 }
 
 // Add to SolanaClientService

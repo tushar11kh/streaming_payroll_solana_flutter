@@ -287,7 +287,7 @@ print('DEBUG: Encoded bytes: ${SolanaClientService().encodeUint64(rawRatePerSeco
           // Debug: show discriminator bytes
           debugPrint('discriminator bytes: ${dataBytes.sublist(0, 8)}');
 
-          final streamData = _decodeStreamAccount(dataBytes);
+          final streamData = solanaService.decodeStreamAccount(dataBytes);
           streams.add(streamData);
           debugPrint('Decoded stream: $streamData');
         } catch (e, st) {
@@ -306,68 +306,6 @@ print('DEBUG: Encoded bytes: ${SolanaClientService().encodeUint64(rawRatePerSeco
     }
   }
 
-  Map<String, dynamic> _decodeStreamAccount(List<int> bytes) {
-    // Layout:
-    // 0-7: discriminator (8 bytes)
-    // 8-39: employer (32 bytes)
-    // 40-71: employee (32 bytes)
-    // 72-103: token_mint (32 bytes) - NEW FIELD
-    // 104: token_decimals (1 byte) - NEW FIELD
-    // 105-112: start_time (i64 LE, 8 bytes)
-    // 113-120: rate_per_second (u64 LE, 8 bytes)
-    // 121-128: deposited_amount (u64 LE, 8 bytes)
-    // 129-136: claimed_amount (u64 LE, 8 bytes)
-    // 137: bump (1 byte)
-
-    final employer = Ed25519HDPublicKey(bytes.sublist(8, 40));
-    final employee = Ed25519HDPublicKey(bytes.sublist(40, 72));
-
-    final tokenMint = Ed25519HDPublicKey(bytes.sublist(72, 104)); // New field
-    final tokenDecimals = bytes[104]; // New field
-
-    int decodeU64LE(List<int> b) {
-      var value = 0;
-      for (var i = 0; i < b.length; i++) {
-        value |= (b[i] & 0xff) << (8 * i);
-      }
-      return value;
-    }
-
-    int decodeI64LE(List<int> b) {
-      // Use BigInt to avoid sign issues
-      final u = BigInt.zero | BigInt.from(0);
-      BigInt big = BigInt.zero;
-      for (var i = 0; i < b.length; i++) {
-        big |= (BigInt.from(b[i]) << (8 * i));
-      }
-      final signBit = BigInt.one << 63;
-      if ((big & signBit) != BigInt.zero) {
-        big = big - (BigInt.one << 64);
-      }
-      return big.toInt();
-    }
-
-    // Proper u64/i64 decoding using ByteData
-    // final byteData = ByteData.sublistView(Uint8List.fromList(bytes));
-
-    final startTime = decodeI64LE(bytes.sublist(105, 113));
-    final ratePerSecond = decodeU64LE(bytes.sublist(113, 121));
-    final depositedAmount = decodeU64LE(bytes.sublist(121, 129));
-    final claimedAmount = decodeU64LE(bytes.sublist(129, 137));
-    final bump = bytes[137];
-
-    return {
-      'employer': employer.toBase58(),
-      'employee': employee.toBase58(),
-      'token_mint': tokenMint.toBase58(),
-      'token_decimals': tokenDecimals,
-      'start_time': startTime,
-      'rate_per_second': ratePerSecond,
-      'deposited_amount': depositedAmount,
-      'claimed_amount': claimedAmount,
-      'bump': bump,
-    };
-  }
 
   void _showDepositDialog(int index) {
     final stream = _streams[index];
@@ -555,9 +493,7 @@ print('DEBUG: Encoded bytes: ${SolanaClientService().encodeUint64(rawRatePerSeco
             BalanceCard(
               title: 'Wallet Balance',
               tokensToShow: [
-                SolanaConstants.supportedTokens[0],
-                SolanaConstants.supportedTokens[1],
-                SolanaConstants.supportedTokens[2],
+
               ],
             ),
             const SizedBox(height: 30),

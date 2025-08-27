@@ -12,22 +12,17 @@ class SolanaConstants {
   // Supported tokens list
   static final List<TokenInfo> supportedTokens = [
     TokenInfo(
-      mint: 'A9ESrFEinfstuaduPPpFTQcFhjwkkPgV7bgGYNj2Cyak',
-      symbol: 'JOB',
-      name: 'Job Coin',
-      decimals: 9,
-    ),
-    TokenInfo(
-      mint: 'DZtXmiYXLrZzUhEQqjFX6ceN4nhAdYoGFAQY4m6EYv3R',
+      mint: 'Fm7F4A2QLHxsBRzNZBWNkAZpezBNeoCV4WV2xaTybS7R',
       symbol: 'E-INR',
       name: 'Electronic Inr',
       decimals: 6,
     ),
+
     TokenInfo(
-      mint: 'FvwLSGm6AUkQvjUz83WBbYkyjQviMTqwAFKt5HfMooxF',
-      symbol: 'SUPA',
-      name: 'Superman',
-      decimals: 9,
+      mint: '6FN16yMemysar3GaPyLyp6txqxfiE5apjquBVm2JeTZn',
+      symbol: 'E-USD',
+      name: 'Electronic USD',
+      decimals: 8,
     ),
   ];
 

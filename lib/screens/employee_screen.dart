@@ -150,7 +150,7 @@ Future<String?> _findOrCreateEmployeeTokenAccount(String mintAddress) async {
     );
 
     if (tokenAccounts.isNotEmpty) {
-      return tokenAccounts.first.pubkey as String;
+      return tokenAccounts.first.pubkey;
     }
 
     // If not found, create associated token account for EMPLOYEE
