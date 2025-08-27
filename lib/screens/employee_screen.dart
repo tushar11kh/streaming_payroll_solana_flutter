@@ -58,7 +58,7 @@ void _claimTokens(int index) async {
     // 1. Calculate claimable amount
     final claimableAmount = solanaService.calculateClaimable(stream);
     
-    if (claimableAmount <= 0) {
+    if (claimableAmount <= BigInt.zero) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No tokens available to claim yet')),
       );
@@ -232,26 +232,41 @@ AppBar(
                         itemBuilder: (context, index) {
                           final stream = _streams[index];
                           final token = TokenUtils.findTokenByMint(stream['token_mint']);
-                          final uiDeposited = TokenUtils.toUiAmount(
-                            stream['deposited_amount'],
-                            stream['token_decimals'],
-                          );
-                          final uiClaimed = TokenUtils.toUiAmount(
-                            stream['claimed_amount'],
-                            stream['token_decimals'],
-                          );
+                          // inside itemBuilder: after `final stream = _streams[index];` and `final token = ...`
 
-                          // Calculate claimable amount
-                          final currentTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-                          final elapsedTime = (currentTime - stream['start_time']).clamp(0, double.infinity).toInt();
-                          final totalEarned = elapsedTime * stream['rate_per_second'];
-                          final claimableAmount = totalEarned - stream['claimed_amount'];
-                          final uiClaimable = TokenUtils.toUiAmount(
-                            claimableAmount.clamp(0, stream['deposited_amount'] - stream['claimed_amount']).toInt(),
-                            stream['token_decimals'],
-                          );
+// Normalize on-chain fields to BigInt
+final BigInt ratePerSecond = TokenUtils.safeToBigInt(stream['rate_per_second']);
+final BigInt depositedAmount = TokenUtils.safeToBigInt(stream['deposited_amount']);
+final BigInt claimedAmount = TokenUtils.safeToBigInt(stream['claimed_amount']);
 
-                          // In the Employee Screen build method, update the stream card:
+// UI doubles for display
+final uiDeposited = TokenUtils.toUiAmount(depositedAmount, stream['token_decimals']);
+final uiClaimed = TokenUtils.toUiAmount(claimedAmount, stream['token_decimals']);
+
+// Calculate claimable using BigInt arithmetic (avoid mixing num and BigInt)
+final int currentTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+final int startTime = stream['start_time'] as int;
+final int elapsedTime = (currentTime - startTime).clamp(0, double.infinity).toInt();
+
+// totalEarned = ratePerSecond * elapsedTime (BigInt * BigInt)
+final BigInt totalEarned = ratePerSecond * BigInt.from(elapsedTime);
+
+// claimable = totalEarned - claimedAmount
+BigInt claimable = totalEarned - claimedAmount;
+if (claimable < BigInt.zero) claimable = BigInt.zero;
+
+// don't allow claiming more than deposited - claimed
+BigInt maxClaimable = depositedAmount - claimedAmount;
+if (maxClaimable < BigInt.zero) maxClaimable = BigInt.zero;
+if (claimable > maxClaimable) claimable = maxClaimable;
+
+// UI value for claimable
+final double uiClaimable = TokenUtils.toUiAmount(claimable, stream['token_decimals']);
+
+// Use BigInt.zero for button enabling logic
+final bool canClaim = claimable > BigInt.zero;
+
+// Now build the card (you can keep your existing layout)
 return Card(
   margin: const EdgeInsets.only(bottom: 16),
   child: Padding(
@@ -265,7 +280,9 @@ return Card(
         ),
         const SizedBox(height: 8),
         Text('Token: ${token?.symbol ?? 'Unknown'}'),
-        Text('Rate: ${TokenUtils.toUiAmount(stream['rate_per_second'], stream['token_decimals']).toStringAsFixed(stream['token_decimals'])} ${token?.symbol}/sec'),
+        Text(
+          'Rate: ${TokenUtils.toUiAmount(ratePerSecond, stream['token_decimals']).toStringAsFixed(stream['token_decimals'])} ${token?.symbol}/sec',
+        ),
         Text('Total Deposited: ${TokenUtils.formatAmount(uiDeposited, 4)} ${token?.symbol}'),
         Text('Already Claimed: ${TokenUtils.formatAmount(uiClaimed, 4)} ${token?.symbol}'),
         Text(
@@ -277,9 +294,9 @@ return Card(
         ),
         const SizedBox(height: 12),
         ElevatedButton(
-          onPressed: uiClaimable > 0 ? () => _claimTokens(index) : null,
+          onPressed: canClaim ? () => _claimTokens(index) : null,
           style: ElevatedButton.styleFrom(
-            backgroundColor: uiClaimable > 0 ? Colors.green[700] : Colors.grey,
+            backgroundColor: canClaim ? Colors.green[700] : Colors.grey,
             foregroundColor: Colors.white,
           ),
           child: _loadingStreams
@@ -297,6 +314,7 @@ return Card(
     ),
   ),
 );
+
                         },
                       ),
           ],

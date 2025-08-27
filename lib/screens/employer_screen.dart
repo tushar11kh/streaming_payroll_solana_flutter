@@ -101,15 +101,15 @@ class _EmployerScreenState extends State<EmployerScreen> {
 
       final rawRatePerSecond = TokenUtils.toRawAmount(
   double.tryParse(_rateController.text) ?? 0,
-  _selectedToken!.decimals, // Use the selected token's decimals
+  _selectedToken!.decimals,
 );
 
+// debug
 print('DEBUG: UI rate: ${_rateController.text}');
-print('DEBUG: Raw rate: $rawRatePerSecond');
-print('DEBUG: Encoded bytes: ${SolanaClientService().encodeUint64(rawRatePerSecond)}');
+print('DEBUG: Raw rate (BigInt): $rawRatePerSecond');
+print('DEBUG: Encoded bytes: ${solanaService.encodeUint64(rawRatePerSecond)}');
 
-
-      final rateBytes = SolanaClientService().encodeUint64(rawRatePerSecond);
+final rateBytes = solanaService.encodeUint64(rawRatePerSecond);
       final instructionData = [
         ...discriminator,
         ...rateBytes,
@@ -371,23 +371,18 @@ print('DEBUG: Encoded bytes: ${SolanaClientService().encodeUint64(rawRatePerSeco
                       context,
                       listen: false,
                     );
-                    final rawAmount = TokenUtils.toRawAmount(
-                      double.tryParse(amountController.text) ?? 0,
-                      stream['token_decimals'],
-                    );
+                    final BigInt rawAmount = TokenUtils.toRawAmount(
+  double.tryParse(amountController.text) ?? 0,
+  stream['token_decimals'],
+);
                     // final tokenAccount = tokenAccountController.text.trim();
 
-                    if (rawAmount <= 0) {
-                      //|| tokenAccount.isEmpty
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Please enter valid amount and token account',
-                          ),
-                        ),
-                      );
-                      return;
-                    }
+                    if (rawAmount <= BigInt.zero) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(content: Text('Please enter valid amount and token account')),
+  );
+  return;
+}
 
                     try {
                       // Re-derive the PDAs using the same method as during creation
@@ -438,7 +433,7 @@ print('DEBUG: Encoded bytes: ${SolanaClientService().encodeUint64(rawRatePerSeco
                         return;
                       }
 
-                      final amount = (rawAmount).round();
+                      // final amount = (rawAmount).round();
 
                       final signature = await solanaService.depositToVault(
                         streamPubkey: streamPda,
@@ -446,7 +441,7 @@ print('DEBUG: Encoded bytes: ${SolanaClientService().encodeUint64(rawRatePerSeco
                         employerTokenAccount: Ed25519HDPublicKey.fromBase58(
                           tokenAccountAddress,
                         ),
-                        amount: amount,
+                        amount: rawAmount,
                       );
 
                       Navigator.pop(context);

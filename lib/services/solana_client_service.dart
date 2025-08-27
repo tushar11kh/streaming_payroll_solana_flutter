@@ -3,6 +3,7 @@ import 'package:solana/dto.dart';
 import 'package:solana/encoder.dart';
 import 'package:solana/solana.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:streaming_payroll_solana_flutter/utils/token_utils.dart';
 import '../constants/solana_constants.dart';
 import 'package:flutter/foundation.dart';
 import 'package:solana/src/encoder/instruction.dart' as inst;
@@ -68,28 +69,23 @@ Future<String> depositToVault({
   required Ed25519HDPublicKey streamPubkey,
   required Ed25519HDPublicKey vaultPubkey,
   required Ed25519HDPublicKey employerTokenAccount,
-  required int amount,
+  required BigInt amount, // BigInt here
 }) async {
   try {
     // Build deposit_to_vault instruction
     final discriminator = [18, 62, 110, 8, 26, 106, 248, 151]; // From IDL
-    final amountBytes = encodeUint64(amount);
+    final amountBytes = encodeUint64(amount); // BigInt -> 8 bytes LE
     final instructionData = [...discriminator, ...amountBytes];
 
     final instruction = inst.Instruction(
       programId: Ed25519HDPublicKey.fromBase58(SolanaConstants.programId),
       accounts: [
-        // employer (signer, writable)
         AccountMeta.writeable(pubKey: wallet!.publicKey, isSigner: true),
-        // stream (writable)
         AccountMeta.writeable(pubKey: streamPubkey, isSigner: false),
-        // vault (writable)
         AccountMeta.writeable(pubKey: vaultPubkey, isSigner: false),
-        // employer_token_account (writable)
         AccountMeta.writeable(pubKey: employerTokenAccount, isSigner: false),
-        // token_program
         AccountMeta.readonly(
-          pubKey: Ed25519HDPublicKey.fromBase58('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'),
+          pubKey: Ed25519HDPublicKey.fromBase58(SolanaConstants.tokenProgramId),
           isSigner: false,
         ),
       ],
@@ -110,11 +106,24 @@ Future<String> depositToVault({
   }
 }
 
+
 // Helper function (add this to your service)
-List<int> encodeUint64(int value) {
-  final int64 = Int64(value);
-  return int64.toBytes();
+// helper: encode u64 little-endian from BigInt
+List<int> encodeUint64(BigInt value) {
+  final max = BigInt.parse('18446744073709551615'); // 2^64-1
+  if (value < BigInt.zero || value > max) {
+    throw ArgumentError('Value out of range for u64: $value');
+  }
+
+  final bytes = List<int>.filled(8, 0);
+  var temp = value;
+  for (int i = 0; i < 8; i++) {
+    bytes[i] = (temp & BigInt.from(0xff)).toInt();
+    temp = temp >> 8;
+  }
+  return bytes;
 }
+
 
 Future<double> getSolBalance() async {
   try {
@@ -229,6 +238,25 @@ Future<List<Map<String, dynamic>>> fetchEmployeeStreams() async {
     return [];
   }
 }
+BigInt decodeU64LE(List<int> b) {
+  BigInt value = BigInt.zero;
+  for (int i = 0; i < b.length; i++) {
+    value |= (BigInt.from(b[i]) << (8 * i));
+  }
+  return value;
+}
+int decodeI64LE(List<int> b) {
+  BigInt big = BigInt.zero;
+  for (int i = 0; i < b.length; i++) {
+    big |= (BigInt.from(b[i]) << (8 * i));
+  }
+  final signBit = BigInt.one << 63;
+  if ((big & signBit) != BigInt.zero) {
+    big = big - (BigInt.one << 64);
+  }
+  return big.toInt();
+}
+
 
 // Helper method to decode stream account data (same as employer side)
 Map<String, dynamic> decodeStreamAccount(List<int> bytes) {
@@ -250,27 +278,8 @@ Map<String, dynamic> decodeStreamAccount(List<int> bytes) {
     final tokenMint = Ed25519HDPublicKey(bytes.sublist(72, 104)); // New field
     final tokenDecimals = bytes[104]; // New field
 
-    int decodeU64LE(List<int> b) {
-      var value = 0;
-      for (var i = 0; i < b.length; i++) {
-        value |= (b[i] & 0xff) << (8 * i);
-      }
-      return value;
-    }
 
-    int decodeI64LE(List<int> b) {
-      // Use BigInt to avoid sign issues
-      final u = BigInt.zero | BigInt.from(0);
-      BigInt big = BigInt.zero;
-      for (var i = 0; i < b.length; i++) {
-        big |= (BigInt.from(b[i]) << (8 * i));
-      }
-      final signBit = BigInt.one << 63;
-      if ((big & signBit) != BigInt.zero) {
-        big = big - (BigInt.one << 64);
-      }
-      return big.toInt();
-    }
+
 
     // Proper u64/i64 decoding using ByteData
     // final byteData = ByteData.sublistView(Uint8List.fromList(bytes));
@@ -341,17 +350,26 @@ Future<String> claimTokens({
 }
 
 // Helper method to calculate claimable amount
-int calculateClaimable(Map<String, dynamic> stream) {
+BigInt calculateClaimable(Map<String, dynamic> stream) {
   final currentTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-  final elapsedTime = (currentTime - stream['start_time']).clamp(0, double.infinity).toInt();
-  final totalEarned = elapsedTime * stream['rate_per_second'];
-  final claimableAmount = totalEarned - stream['claimed_amount'];
-  
-  // Cannot claim more than what's available in the vault
-  final maxClaimable = stream['deposited_amount'] - stream['claimed_amount'];
-  
-  return claimableAmount.clamp(0, maxClaimable).toInt();
+  final startTime = stream['start_time'] as int;
+  final elapsedTime = (currentTime - startTime).clamp(0, double.infinity).toInt();
+
+  final BigInt ratePerSecond = TokenUtils.safeToBigInt(stream['rate_per_second']);
+  final BigInt deposited = TokenUtils.safeToBigInt(stream['deposited_amount']);
+  final BigInt claimed = TokenUtils.safeToBigInt(stream['claimed_amount']);
+
+  final BigInt totalEarned = ratePerSecond * BigInt.from(elapsedTime);
+  BigInt claimable = totalEarned - claimed;
+  if (claimable < BigInt.zero) claimable = BigInt.zero;
+
+  final BigInt maxClaimable = deposited - claimed;
+  if (maxClaimable < BigInt.zero) return BigInt.zero;
+
+  if (claimable > maxClaimable) return maxClaimable;
+  return claimable;
 }
+
 
 }
 
