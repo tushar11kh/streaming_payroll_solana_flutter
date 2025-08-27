@@ -57,7 +57,7 @@ class _EmployerScreenState extends State<EmployerScreen> {
     }
 
     final employeePubkey = _employeeController.text.trim();
-    final rate = int.tryParse(_rateController.text.trim()) ?? 0;
+    final rate = double.tryParse(_rateController.text.trim()) ?? 0;
 
     if (employeePubkey.isEmpty || rate <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
