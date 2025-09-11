@@ -2,8 +2,8 @@
 import 'package:streaming_payroll_solana_flutter/models/token_info.dart';
 
 class SolanaConstants {
-  static const String rpcUrl = 'http://127.0.0.1:8899';
-  static const String wsUrl = 'ws://127.0.0.1:8900';
+  static const String rpcUrl = 'http://192.168.1.17:8899';
+  static const String wsUrl = 'ws://192.168.1.17:8900/';
   static const String programId = 'CtiRAqpHkEkzEzsbW4in6cKNcDBdevQFGbBBsSmJsCeL';
   static const String tokenProgramId = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
   static const String streamSeed = 'stream';
@@ -12,19 +12,27 @@ class SolanaConstants {
   // Supported tokens list
   static final List<TokenInfo> supportedTokens = [
     TokenInfo(
-      mint: 'Fm7F4A2QLHxsBRzNZBWNkAZpezBNeoCV4WV2xaTybS7R',
+      mint: '67aPua82DDJqywGGnBCERbew6p6eNt4UaHJnY3veS43d',
       symbol: 'E-INR',
       name: 'Electronic Inr',
-      decimals: 6,
+      decimals: 8,
     ),
 
     TokenInfo(
-      mint: '6FN16yMemysar3GaPyLyp6txqxfiE5apjquBVm2JeTZn',
+      mint: 'Dzb6nCxRS5x9yCxknDADHNUUJuw1oXnrnH5FSho9Nawa',
       symbol: 'E-USD',
       name: 'Electronic USD',
-      decimals: 8,
+      decimals: 4,
+    ),
+    
+    TokenInfo(
+      mint: 'CAjFufCamSJQjszKWMuKsgwiCW4ssucyeBb1waYTnfUq',
+      symbol: 'JOBC',
+      name: 'Job Coin',
+      decimals: 6,
     ),
   ];
+  
 
   // Shared preferences keys
   static const String storedPrivateKeyKey = 'stored_private_key';
